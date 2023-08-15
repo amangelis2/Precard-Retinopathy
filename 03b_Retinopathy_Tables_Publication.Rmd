@@ -1,0 +1,253 @@
+---
+title: "Retinopathy Tables for publication"
+author: "Tasos"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library("arsenal")
+library("DataExplorer")
+library("finalfit")
+library("dplyr")
+library("survival")
+library("survminer")
+library("knitr")
+library("rms")
+library(gtsummary)
+library(pander)
+
+```
+
+
+## Flowchart for publication
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='asis', fig.height=6, fig.width=8}
+
+# Flowchart including the number of patients in the various steps of the analysis
+DiagrammeR::grViz("digraph {
+  graph [layout = dot, rankdir = TB]
+
+  node [shape = rectangle]
+  rec1 [label = 'Initial number of patients: 3875']
+  rec2 [label = 'Patients with R0M0 baseline values: 2219']
+  rec3 [label = 'Final cohort: 1876']
+  node [shape = oval]
+  rec4 [label = 'Exclude patients with R1M1 or R1M0 baseline values']
+  rec5 [label = 'Exclude patients with no follow up']
+  # edge definitions with the node IDs
+  rec1 -> rec4 -> rec2 -> rec5 -> rec3
+  }")
+
+```
+
+\newpage
+
+## Table 1: Patient characteristics at baseline
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+
+# Baseline patient characteristics using the gtsummary() function
+Ret_prog_DTI%>%
+  select(Age, Diabetes_Dur, eGFR, SYSTOLIC, DIASTOLIC, Hba1c, ACR,
+         Cholesterol, BMI, Weight, Ethnicity_groups, Afrocaribbean_Ethnicity, Gender, ACR_G)%>%
+  tbl_summary(missing = "no", # don't show missing data
+              # Define appropriate statistics to display for numerical and categorical data
+              statistic = list(all_continuous() ~ "{mean} ({sd}), ({min}, {max}), 
+                               {median} ({p25}, {p75})",
+                     all_categorical() ~ "{n} ({p}%)"),
+              # Define digits to display
+              digits = list(all_continuous() ~ c(2, 2)),
+              # Change names of variables for better presentation
+              label = list(Age ~	"Age (years)",
+                           Diabetes_Dur~	"Duration of diabetes",
+                           eGFR~	"eGFR baseline",
+                           SYSTOLIC ~	"Systolic blood pressure",
+                           DIASTOLIC~	"Diastolic blood pressure",
+                           Hba1c	~	"HbA1c",
+                           ACR ~	"ACR",
+                           ACR_G ~	"ACR (groups)",
+                           Cholesterol~	"Cholesterol",
+                           BMI ~ "BMI", 
+                           Afrocaribbean_Ethnicity~	"African Caribbean"	))%>%
+  add_n()
+
+```
+
+\newpage
+
+## Table 2: Table with baseline patient characteristics stratified by African-Caribbean Ethnicity
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+
+# Same as above, use gtsummary for display of cohort characteristics by ethnicity 
+Ret_prog_DTI%>%
+  select(Age, Diabetes_Dur, eGFR, SYSTOLIC, DIASTOLIC, Hba1c, ACR,
+         Cholesterol, BMI, Weight, Ethnicity_groups, Afrocaribbean_Ethnicity, Gender, ACR_G)%>%
+  tbl_summary(missing = "no", by = Afrocaribbean_Ethnicity, # devide data by ethnicity
+              statistic = list(all_continuous() ~ "{mean} ({sd}), ({min}, {max}), 
+                               {median} ({p25}, {p75})",
+                     all_categorical() ~ "{n} ({p}%)"),
+              digits = list(all_continuous() ~ c(2, 2)),
+              label = list(Age ~	"Age (years)",
+                           Diabetes_Dur~	"Duration of diabetes",
+                           eGFR~	"eGFR baseline",
+                           SYSTOLIC ~	"Systolic blood pressure",
+                           DIASTOLIC~	"Diastolic blood pressure",
+                           Hba1c	~	"HbA1c",
+                           ACR ~	"ACR",
+                           ACR_G ~	"ACR (groups)",
+                           Cholesterol~	"Cholesterol",
+                           BMI ~ "BMI", 
+                           Afrocaribbean_Ethnicity~	"African Caribbean"	))%>%
+  add_n()%>%
+  add_p() # add statistical tests between the groups
+
+```
+
+\newpage
+
+## Retinopathy progression
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+
+# Same as above, use gtsummary for display of cohort characteristics by progressors vs non progressors 
+Ret_prog_DTI%>%
+  select(Age, Diabetes_Dur, eGFR, SYSTOLIC, DIASTOLIC, Hba1c, ACR,
+         Cholesterol, BMI, Weight, Ethnicity_groups, EventCox, Afrocaribbean_Ethnicity, Gender, ACR_G)%>%
+  # Modify factor levels for better presentation
+  mutate(EventCox=factor(EventCox, levels = c(1, 2), 
+                         labels=c("progression", "cencored")))%>%
+  tbl_summary(missing = "no", by = EventCox,
+              statistic = list(all_continuous() ~ "{mean} ({sd}), ({min}, {max}), 
+                               {median} ({p25}, {p75})",
+                     all_categorical() ~ "{n} ({p}%)"),
+              digits = list(all_continuous() ~ c(2, 2)),
+              label = list(Age ~	"Age (years)",
+                           Diabetes_Dur~	"Duration of diabetes",
+                           eGFR~	"eGFR baseline",
+                           SYSTOLIC ~	"Systolic blood pressure",
+                           DIASTOLIC~	"Diastolic blood pressure",
+                           Hba1c	~	"HbA1c",
+                           ACR ~	"ACR",
+                           ACR_G ~	"ACR (groups)",
+                           Cholesterol~	"Cholesterol",
+                           BMI ~ "BMI", 
+                           Afrocaribbean_Ethnicity~	"African Caribbean"	))%>%
+  add_n()%>%
+  add_p()
+
+  
+```
+
+\newpage
+
+## Retinopathy progression including all cause mortality
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+
+# Same as above, use gtsummary for display of cohort characteristics including patients 
+# with pre-event death events
+
+Ret_prog_DTI%>%
+  select(Age, Diabetes_Dur, eGFR, SYSTOLIC, DIASTOLIC, Hba1c, ACR,
+         Cholesterol, BMI, Weight, Ethnicity_groups, Eventg, Afrocaribbean_Ethnicity, Gender, ACR_G)%>%
+  mutate(EventCox=factor(Eventg, levels = c(0, 1, 2), 
+                         labels=c("cencored", "progression", "pre-event Death")))%>%
+  tbl_summary(missing = "no", by = EventCox,
+              statistic = list(all_continuous() ~ "{mean} ({sd}), ({min}, {max}), 
+                               {median} ({p25}, {p75})",
+                     all_categorical() ~ "{n} ({p}%)"),
+              digits = list(all_continuous() ~ c(2, 2)),
+              label = list(Age ~	"Age (years)",
+                           Diabetes_Dur~	"Duration of diabetes",
+                           eGFR~	"eGFR baseline",
+                           SYSTOLIC ~	"Systolic blood pressure",
+                           DIASTOLIC~	"Diastolic blood pressure",
+                           Hba1c	~	"HbA1c",
+                           ACR ~	"ACR",
+                           ACR_G ~	"ACR (groups)",
+                           Cholesterol~	"Cholesterol",
+                           BMI ~ "BMI", 
+                           Afrocaribbean_Ethnicity~	"African Caribbean"	))%>%
+  add_n()%>%
+  add_p()
+
+```
+
+\newpage
+
+## Regression models
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='asis'}
+
+# Use final fit model for double checking hazard ratios and 95% CIs, 
+# also because it is more powerful in presenting all under one table suitable for publication
+
+# Define variable set and survival objects for the models below
+explanatory = c("Afrocaribbean_Ethnicity", "SYSTOLIC", "Hba1c")
+dependent_dss = "Surv(T2Eg, EventCox)"
+dependent_crr = "Surv(T2Eg, Eventg)"
+
+# Create the tables and fill with model outputs
+Ret_prog_DTI %>%
+  #summary table
+  summary_factorlist(dependent_dss, explanatory, column = TRUE, fit_id = TRUE) %>%
+    # CPH univariable
+  ff_merge(Ret_prog_DTI %>% coxphuni(dependent_dss, explanatory) %>%
+     fit2df(estimate_suffix = " (CPH univariable)")) %>%
+    # CPH multivariable
+  ff_merge(Ret_prog_DTI %>% coxphmulti(dependent_dss, explanatory) %>%
+      fit2df(estimate_suffix = " (CPH multivariable)")) %>%
+    # Fine and Gray competing risks regression
+  ff_merge(Ret_prog_DTI %>% crrmulti(dependent_crr, explanatory) %>%
+    fit2df(estimate_suffix = " (Competing risks model)")) %>%
+  select(-fit_id, -index) %>%
+  dependent_label(Ret_prog_DTI, "Survival")%>%
+  kableExtra::kable()
+
+```
+
+\newpage
+
+## Cumulative incidence curve for Afro-caribbean ethnicity
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+
+fit.test<-survfit(Surv(T2Eg, EventCox) ~ Afrocaribbean_Ethnicity, data = Ret_prog_DTI)
+
+# insert ggplot code
+
+ggsurv_fig1<-ggsurvplot(fit.test,         
+          conf.int = F, linetype = "solid", ggtheme = theme_classic(),
+          palette = c("#999999", "#E69F00"),
+          # Legend specs
+          legend.labs=c("Non African-Caribbean", "African-Caribbean"),
+          legend.title = "Ethnicity", 
+          legend.fontsize=12,
+          fun = "cumhaz",
+          # axis specs
+          xlim=c(0, 12), ylim=c(0, 1),
+          font.x = c(14),
+          pval = F, font.y = c(14),
+          font.tickslab = c(14, "plain"),
+          xlab="Follow up (years)",
+          ylab="Cumulative Hazard",
+          # Table features
+          risk.table = T,
+          tables.theme = theme_cleantable(),
+          tables.y.text = FALSE,
+          break.time.by = 2,
+          censor.shape="")
+
+# Add additional p value indication in specific position
+ggsurv_fig1$plot <- ggsurv_fig1$plot + annotate("text", x = 11.5, y = 0.52, label = "p<0.001", cex=4, col="black", vjust=0, hjust = 1.1, fontface=1.5)
+
+# Save figure in high quality for publication
+tiff("Figure_KMplot_Ethnicity.tiff", res = 700, width = 5500, height = 4000, units = "px")
+ggsurv_fig1
+dev.off()
+
+```
+

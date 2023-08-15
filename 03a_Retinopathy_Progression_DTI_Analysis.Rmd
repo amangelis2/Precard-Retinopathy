@@ -1,0 +1,387 @@
+---
+title: "Precardc_Ret_Prog_DTI"
+author: "Tasos"
+date: "07/10/2022"
+output: html_document
+---
+
+# Precard analysis for Retinopathy Progression with diabetes Type I
+
+```{r setup,echo=FALSE, message=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE)
+
+library("finalfit")
+library("dplyr")
+library("survival")
+library("knitr")
+library('survivalAnalysis')
+library("riskRegression")
+# library("regplot")
+library("rms")
+library("pec")
+library("survminer")
+# library("cmprsk")
+# #library("hdnom")
+# if (!require("pacman")) install.packages("pacman")
+# pacman::p_load(caret, magrittr, pacman, rio, tidyverse)
+# #load(file = "Precardc_RET_2021.RData")
+```
+
+```{r echo=FALSE, message=FALSE}
+html(contents(Ret_prog_DTI), maxlevels=10, levelType='table')
+```
+
+
+# 1. RMS package - Model
+
+## Stepwise backward variable selection for cox ph model
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="",  results='markup'}
+# Development of the model using the fastbw() function of the RMS model to identify the optimal combination of variables 
+ret.cox_full <- cph(Surv(T2Eg, EventgCox) ~ Age+ Diabetes_Dur+ eGFR+ SYSTOLIC+ DIASTOLIC+ Hba1c+ ACR+
+                      Cholesterol+ BMI+ Weight+ Ethnicity_groups+ Afrocaribbean_Ethnicity+ Gender+ ACR_G, 
+                    data=Ret_prog_DTI, x=TRUE, y=TRUE, surv=TRUE, time.inc=1)
+
+fastbw(ret.cox_full, rule=c("aic"), type=c("individual"),  sls=.05, aics=1, eps=1e-9, k.aic=2, force=NULL)
+
+```
+
+## Cox regression model
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="",  results='markup'}
+# CoxPH models based on the above calculations
+ret.cox <- cph(Surv(T2Eg, EventgCox) ~ Afrocaribbean_Ethnicity+SYSTOLIC+Hba1c, 
+               data = Ret_prog_DTI, x=TRUE, y=TRUE, surv=TRUE, time.inc=1)
+# Display model characteristics
+ret.cox
+
+```
+
+## Hazard ratios estimates and 95% CI
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+
+# Produce hazard ratios and 95% CIs for model parameters
+cat("hazard ratio estimates")
+pander(exp(coef(ret.cox))) # hazard ratio estimates)
+cat("hazard ratio 95% CI")
+pander(exp(confint(ret.cox))) # hazard ratio 95% CI
+```
+
+## Checking the Proportional Hazards Assumption
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+
+# Proportionality of hazards check via plotting the beta(t) coefficients (line is horizontal) 
+cox.zph(ret.cox)
+survminer::ggcoxzph(cox.zph(ret.cox), var = c("Afrocaribbean_Ethnicity"), font.main = 12, ylab="Beta (t): Ethnicity", xlab="Follow up (years)")
+survminer::ggcoxzph(cox.zph(ret.cox), var = c("SYSTOLIC"), font.main = 12, ylab="Beta (t): Systolic blood pressure", xlab="Follow up (years)")
+survminer::ggcoxzph(cox.zph(ret.cox), var = c("Hba1c"), font.main = 12, ylab="Beta (t): Hba1c", xlab="Follow up (years)")
+```
+
+## Model evaluation
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+# Use the anova.rms function for chiq test
+anova(ret.cox, test = c( "Chisq"))
+```
+
+## Multicollinearity by Variance Inflation Factors
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+
+cat("Variance Inflation Factors")
+pander(rms::vif(ret.cox))
+
+```
+
+## Validation of the model
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+
+# Check difference in statistics such as R2, Somers’ d estimate etc, over cross-validated iterations
+
+validate(ret.cox, method="crossvalidation", B=50, bw=FALSE, rule="aic", type="residual", sls=.05, 
+         aics=0, force=NULL, estimates=TRUE, pr=FALSE, dxy=TRUE, tol=1e-9)
+
+```
+
+## Calibration plots for 1, 5 and 10 years
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+# Create calibration plot to check if predicted survival probabilities from the model align with the observed survival probabilities
+set.seed(43233)
+cal.rms1<-rms::calibrate(ret.cox, cmethod=c('hare', 'KM'), method="boot", u=1, m=150, B=40, 
+  bw=TRUE, rule="aic", type="residual", sls=0.05, aics=0, force=NULL,
+  estimates=TRUE, pr=FALSE, what="observed-predicted", tol=1e-12, maxdim=5)
+cal.rms5<-rms::calibrate(ret.cox5, cmethod=c('hare', 'KM'), method="boot", u=5, m=150, B=40, 
+  bw=FALSE, rule="aic", type="residual", sls=0.05, aics=0, force=NULL,
+  estimates=TRUE, pr=FALSE, what="observed-predicted", tol=1e-12, maxdim=5)
+cal.rms10<-rms::calibrate(ret.cox10, cmethod=c('hare', 'KM'), method="boot", u=10, m=150, B=40, 
+  bw=FALSE, rule="aic", type="residual", sls=0.05, aics=0, force=NULL,
+  estimates=TRUE, pr=FALSE, what="observed-predicted", tol=1e-12, maxdim=5)
+plot(cal.rms1, main="Predicted 1 year Survival", xlab="")
+plot(cal.rms5, main="Predicted 5 years Survival", xlab="")
+plot(cal.rms10, main="Predicted 10 years Survival", xlab="")
+
+```
+
+## Nomogram of the produced survival model
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup', fig.width=12, fig.asp = .82}
+
+# “Packaging” data before the building of regression model and Nomogram by rms package. This is very important step for Nomogram building. 
+
+dd=datadist(Ret_prog_DTI)
+options(datadist="dd")
+units(Ret_prog_DTI$T2Eg) <- "Year"
+
+# Nomogram of survival rate will be built based on Cox regression. Set the survival object (surv1, surv2) based on survival function firstly.
+surv1<- function(x)surv(1,lp = x) # defined time.inc 1 year survival probability 
+surv2<- function(x)surv(5,lp = x) # defined time.inc 5 year survival probability
+
+# Build survival Nomogram of Cox regression 
+nom <- nomogram(ret.cox, fun = list(surv1, surv2), funlabel = c("1-year Survival Probability", "5-year Survival Probability"),
+                abbrev = TRUE)
+plot(nom, xfrac=0.3, cex.axis=.9, nint=20)
+```
+
+## PREDICTION with new instances
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+
+# Use this prediction function to predict risk at different time points for "new" patient data including the same variables
+predictSurvProb(ret.cox, newdata=ret.test.data ,times=c(1, 5, 10, 14))
+```
+
+# 2. RiskRegression package
+
+## Proportional hazards and fine-gray models
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+
+# Cause specific Cox model
+csc <- CSC(Hist(T2Eg, Eventg)~Afrocaribbean_Ethnicity+SYSTOLIC+Hba1c, data = Ret_prog_DTI, cause = "1")
+# Print the model characteristics
+csc
+
+# Fine gray model
+fgr <- FGR(Hist(T2Eg, Eventg)~Afrocaribbean_Ethnicity+SYSTOLIC+Hba1c, data = Ret_prog_DTI, cause = "1")
+cat('Competeting Risks model with death as competing Eventg:')
+# print the model characteristics
+fgr
+```
+
+## AUC and Brier plots of the models
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+# (time-dependent) Brier score and the (time-dependent) AUC in the learning data using bootstrap
+# cross-validation. The function optionally provides results for plotting (time-point specific)
+##' ROC curves, for (time-point specific) calibration curves and for (time-point specific) retrospective boxplots.
+score<-Score(list("Cause-specific Cox"=csc, "Fine-Gray"=fgr), formula = Hist(T2Eg,Eventg)~1,
+              data=Ret_prog_DTI, times = seq(1,14,1), plots = "ROC", summary = "risks")
+dev.new(width=5,height=4)
+plotROC(score,times = 2)
+```
+
+## Prediction
+
+### Prediction plot of the absolute risk of variables in a time frame
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+pred.csc<-predict(csc, newdata = ret.test.data, time = 1:14, cause = 1)
+autoplot(pred.csc)
+```
+
+### Absolute risk of ONE new patient at a specific time point
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+# Absolute risk value
+predictRisk(csc, newdata = ret.test.data, time = 10, cause = 1)
+```
+
+### Absolute risk of multiple new patients at specific time point
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+
+pfit1 <- predict(csc, newdata = ret.test.data, cause = 1, times = c(14), se = TRUE, keep.newdata = FALSE)
+print(pfit1)
+```
+
+### Absolute risk alternative plot for 1 patient over 15 and 10 years
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, comment="", results='markup'}
+
+vec.times <- csc$EventgTimes
+pfit1band <- predict(csc, newdata = ret.test.data, cause = 1, times = vec.times, se = TRUE, band = TRUE)
+
+figure3 <- autoplot(pfit1band, band = TRUE, ci = TRUE)$plot
+figure3 <- figure3 + xlab("Time (years)") + ylab("Absolute risk") + xlim(0,10)
+print(figure3)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
